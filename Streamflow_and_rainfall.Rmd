@@ -1,0 +1,95 @@
+---
+title: "Current Conditions Examples"
+author: "Kate Douthat"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Stream Gage Data
+
+```{r}
+#Simulate 30 years of Streamflow data as daily cumulative flow for 5 gages in the HUC
+
+Yearlist <- paste0(1991:2020)
+Yearlist <- append(Yearlist, 2024)
+
+gagelist <- 1:5
+n = length(Yearlist)
+n1 = length(gagelist)
+datalist = vector("list", length = n)
+gdatalist = vector("list", length = n1)
+
+for (i in gagelist){
+  for (j in Yearlist){
+    DayofYear <- paste0(1:365)
+    normy = rnorm(365, mean=0, sd=1)
+
+    df <- as_tibble(cbind(DayofYear,randy, normy)) |>
+      mutate(across(where(is.character), as.numeric)) |>
+      mutate(seasonalcoeff = .75*cos((2*DayofYear/365*pi)),
+         seasonal_flow = pmax(normy +seasonalcoeff + 3,0),
+         year = j
+         )
+    datalist[[j]] <- df
+  }
+
+  big_data <- dplyr::bind_rows(datalist) |>
+    mutate(gageid = i)
+  
+  gdatalist[[i]] <- big_data
+}
+
+```
+
+```{r}
+allgages <- dplyr::bind_rows(gdatalist)
+
+allgages <- allgages |>
+  mutate( dailyflow = seasonal_flow) |>
+  select(gageid, year, DayofYear, dailyflow)
+```
+
+https://waterwatch.usgs.gov/wwhelps/?mt=pa14d&wt=map&print=1
+The "14-day average streamflow" map shows the average streamflow conditions  for the past 14 days. By averaging over 14 days, the values on the map are more indicative of longer-term streamflow conditions than either the "Real-time streamflow" or the "Daily streamflow" maps.
+
+The map depicts 14-day average streamflow conditions as computed at USGS streamgages. The colors represent 14-day average streamflow compared to percentiles of historical 14-day average streamflow  for the day of the year. This map represents conditions adjusted for this time of the year. Only streamgages having at least 30 years of record are used.
+
+States containing no dots indicate locations where flow data for the current day are temporarily unavailable. During winter months, some states (or parts of states) may have fewer dots than at other times of the year due to ice effects.
+
+The data used to produce this map are provisional and have not been reviewed or edited. They may be subject to significant change.
+```{r}
+# 14-day average for a single gage
+window <- 14
+currentdoy <- yday(today(tzone = "US/Eastern")) 
+firstdate <- currentdoy - window+1
+length(firstdate:currentdoy)
+currentyear <- 2024
+
+#gage 1 14-day average
+
+allgages |>
+  filter(DayofYear %in% (firstdate:currentdoy) & year == currentyear) |>
+  group_by(gageid) |>
+  summarize(average14day = mean(dailyflow))
+  
+```
+
+```{r}
+#14-day average percentile for all 5 gages
+
+allgages |>
+  filter(DayofYear %in% (firstdate:currentdoy)) |>
+  group_by(gageid, year) |>
+  summarize(average14day = mean(dailyflow)) |>
+  group_by(gageid) |>
+  mutate(percent_rank = round(rank(average14day)/length(average14day)*100, 1)
+         )|>
+  filter(year == currentyear) |>
+  ungroup() |>
+  summarise(grouppercentile = median(percent_rank))
+  
+```
