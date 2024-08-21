@@ -9,6 +9,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+```
+
 #Stream Gage Data
 
 ```{r}
@@ -53,14 +59,14 @@ allgages <- allgages |>
   select(gageid, year, DayofYear, dailyflow)
 ```
 
-https://waterwatch.usgs.gov/wwhelps/?mt=pa14d&wt=map&print=1
-The "14-day average streamflow" map shows the average streamflow conditions  for the past 14 days. By averaging over 14 days, the values on the map are more indicative of longer-term streamflow conditions than either the "Real-time streamflow" or the "Daily streamflow" maps.
+<https://waterwatch.usgs.gov/wwhelps/?mt=pa14d&wt=map&print=1> The "14-day average streamflow" map shows the average streamflow conditions for the past 14 days. By averaging over 14 days, the values on the map are more indicative of longer-term streamflow conditions than either the "Real-time streamflow" or the "Daily streamflow" maps.
 
-The map depicts 14-day average streamflow conditions as computed at USGS streamgages. The colors represent 14-day average streamflow compared to percentiles of historical 14-day average streamflow  for the day of the year. This map represents conditions adjusted for this time of the year. Only streamgages having at least 30 years of record are used.
+The map depicts 14-day average streamflow conditions as computed at USGS streamgages. The colors represent 14-day average streamflow compared to percentiles of historical 14-day average streamflow for the day of the year. This map represents conditions adjusted for this time of the year. Only streamgages having at least 30 years of record are used.
 
 States containing no dots indicate locations where flow data for the current day are temporarily unavailable. During winter months, some states (or parts of states) may have fewer dots than at other times of the year due to ice effects.
 
 The data used to produce this map are provisional and have not been reviewed or edited. They may be subject to significant change.
+
 ```{r}
 # 14-day average for a single gage
 window <- 14
@@ -92,4 +98,92 @@ allgages |>
   ungroup() |>
   summarise(grouppercentile = median(percent_rank))
   
+```
+
+# Rainfall
+
+Current year data to be provided from rutgers/rainfall interpolated points 30-year monthly norms to be provided from PRISM
+
+```{r}
+#Simulate 30 years of Rainfall data 
+
+Yearlist <- paste0(1991:2020)
+Yearlist <- append(Yearlist, 2024)
+
+gagelist <- 1:5
+n = length(Yearlist)
+n1 = length(gagelist)
+datalist = vector("list", length = n)
+gdatalist = vector("list", length = n1)
+
+for (i in gagelist){
+  for (j in Yearlist){
+    DayofYear <- paste0(1:365)
+    rainfall_in <- rnorm(365, .0001, .9) %>%
+    pmin(10) %>% 
+    round(2)
+    
+    rainfall_in[rainfall_in< .3] <- 0
+
+    df <- as_tibble(cbind(DayofYear,rainfall_in)) |>
+  mutate(across(where(is.character), as.numeric)) |>
+  mutate(seasonalcoeff = .75*cos((2*DayofYear/365*pi))-.8,
+         seasonal_in = pmax(rainfall_in +seasonalcoeff,0),
+         year = j
+         )
+    datalist[[j]] <- df
+  }
+
+  big_data <- dplyr::bind_rows(datalist) |>
+    mutate(gageid = i)
+  
+  gdatalist[[i]] <- big_data
+}
+
+```
+
+```{r}
+raingages <- dplyr::bind_rows(gdatalist)
+
+#Add date fields and normals
+
+raingages <- 
+  raingages |>
+  select(gageid, year, DayofYear, rainfall_in) |>
+  mutate(date_= as.Date(DayofYear-1, origin=paste0(year, "-01-01")), 
+              month= strftime(date_, "%m"), 
+              day=strftime(date_,"%d")) |>
+  group_by(gageid, year, month) |>
+  mutate(dayspermonth = n_distinct(DayofYear),
+         monthly_cum_in = sum(rainfall_in)) |>
+  group_by(gageid, month) |>
+  mutate(monthlynormal = mean(monthly_cum_in),
+         daily_fraction_of_monthly_normal = monthlynormal/dayspermonth)
+
+head(raingages)
+```
+
+```{r}
+#Current cumulative inches and Percent Departures
+window <- 14
+currentdoy <- yday(today(tzone = "US/Eastern")) 
+firstdate <- currentdoy - window+1
+wl <- length(firstdate:currentdoy)
+currentyear <- 2024
+
+rainfallsummary <- raingages |>
+  filter(DayofYear %in% (firstdate:currentdoy) & year == currentyear) |>
+  group_by(gageid) |>
+  summarize(Cumulative_current_14day = sum(rainfall_in),
+            Cumulative_normal_14day = round(sum(daily_fraction_of_monthly_normal), 2),
+            Percent_departure = round((Cumulative_current_14day-Cumulative_normal_14day)/Cumulative_normal_14day*100, 1)) 
+
+rainfallsummary  
+```
+
+```{r}
+#HUCwide summary
+rainfallsummary |>
+  summarise(HUCwide_average_departure = median(Percent_departure)
+         )
 ```
