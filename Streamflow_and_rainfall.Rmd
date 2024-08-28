@@ -34,7 +34,7 @@ for (i in gagelist){
     DayofYear <- paste0(1:365)
     normy = rnorm(365, mean=0, sd=1)
 
-    df <- as_tibble(cbind(DayofYear,randy, normy)) |>
+    df <- as_tibble(cbind(DayofYear, normy)) |>
       mutate(across(where(is.character), as.numeric)) |>
       mutate(seasonalcoeff = .75*cos((2*DayofYear/365*pi)),
          seasonal_flow = pmax(normy +seasonalcoeff + 3,0),
